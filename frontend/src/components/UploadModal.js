@@ -33,8 +33,10 @@ export default function UploadModal({ onClose, onSuccess }) {
 
   const validateAndSetFile = (f) => {
     if (!f) return;
-    if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
-      setStatus({ type: 'error', message: 'Please upload a PDF file.' });
+    const isPDF = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+    const isJSON = f.type === 'application/json' || f.name.toLowerCase().endsWith('.json');
+    if (!isPDF && !isJSON) {
+      setStatus({ type: 'error', message: 'Please upload a PDF or JSON file.' });
       return;
     }
     setFile(f);
@@ -109,15 +111,15 @@ export default function UploadModal({ onClose, onSuccess }) {
             type="file" 
             ref={fileInputRef} 
             onChange={handleFileChange} 
-            accept=".pdf" 
+            accept=".pdf,.json" 
             className="upload-input" 
           />
           
-          <div className="upload-icon">📄</div>
+          <div className="upload-icon">{file && file.name.toLowerCase().endsWith('.json') ? '📝' : '📄'}</div>
           {!file ? (
             <div className="upload-text">
               <strong>Click to upload</strong> or drag and drop<br/>
-              PDF files only
+              PDF or JSON files only
             </div>
           ) : (
             <div className="upload-text">

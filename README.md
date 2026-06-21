@@ -9,7 +9,7 @@ The application utilizes an advanced AI Engine backed by a dynamic vector databa
 - **Conversational UI**: A clean, premium dark-mode chat interface to ask complex legal queries.
 - **Dynamic RAG System**: The AI retrieves highly relevant sections, articles, and chapters from Indian legal documents to ground its answers.
 - **Source Citation**: Transparently displays the legal sources used for each response, including matching scores and exact excerpts.
-- **Knowledge Base Management**: An intuitive sidebar to monitor document ingestion stats and directly upload new PDF documents to the vector database.
+- **Knowledge Base Management**: An intuitive sidebar to monitor document ingestion stats and directly upload new PDF or JSON documents to the vector database.
 - **Fast & Responsive**: Built with Next.js and FastAPI for a seamless experience.
 
 ## Architecture
@@ -77,7 +77,7 @@ The frontend will start at `http://localhost:3000`.
 ## Usage
 
 1. Open `http://localhost:3000` in your browser.
-2. Use the left sidebar to upload PDF documents of Indian laws, acts, or cases to index them into the knowledge base.
+2. Use the left sidebar to upload PDF or JSON documents of Indian laws, acts, or cases to index them into the knowledge base.
 3. Start asking questions in the chat interface. The engine will retrieve the most relevant sections from your ingested PDFs and provide a well-structured, cited answer.
 
 ## Disclaimer

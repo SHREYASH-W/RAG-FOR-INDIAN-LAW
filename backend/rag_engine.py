@@ -5,6 +5,7 @@ Mirrors the logic from the Kaggle notebook but structured for production use.
 import re
 import hashlib
 import logging
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -68,6 +69,30 @@ def extract_pages(pdf_path: Path) -> list[dict]:
             if text:
                 pages.append({"page": page_num, "text": text.strip()})
     return pages
+
+
+def extract_json_chunks(json_path: Path) -> list[dict]:
+    """Extract text chunks from a JSON file. Adapt to list or dict structures."""
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    pages = []
+    if isinstance(data, list):
+        for i, item in enumerate(data, start=1):
+            if isinstance(item, str):
+                pages.append({"page": i, "text": item.strip()})
+            elif isinstance(item, dict):
+                text = item.get("text", item.get("content", json.dumps(item)))
+                pages.append({"page": i, "text": text.strip()})
+            else:
+                pages.append({"page": i, "text": str(item).strip()})
+    elif isinstance(data, dict):
+        text = json.dumps(data, indent=2)
+        pages.append({"page": 1, "text": text.strip()})
+    else:
+        pages.append({"page": 1, "text": str(data).strip()})
+        
+    return [p for p in pages if p["text"]]
 
 
 def chunk_page(page_text: str, page_num: int, source: str) -> list[dict]:
@@ -204,6 +229,60 @@ class VectorStore:
         return {
             "status": "success",
             "message": f"Ingested {pdf_path.name}",
+            "chunks_added": len(ids),
+            "total_chunks": self.collection.count(),
+        }
+
+    def ingest_json(self, json_path: Path) -> dict:
+        """Ingest a JSON file into the vector store. Returns stats dict."""
+        md5 = pdf_md5(json_path)
+
+        # Dedup check
+        existing = self.collection.get(where={"pdf_hash": md5}, limit=1)
+        if existing["ids"]:
+            return {
+                "status": "skipped",
+                "message": f"{json_path.name} already ingested",
+                "chunks_added": 0,
+            }
+
+        pages = extract_json_chunks(json_path)
+        act_name = _get_act_name(json_path.name)
+
+        docs, metas, ids = [], [], []
+        idx = 0
+
+        for page in pages:
+            chunks = chunk_page(page["text"], page["page"], json_path.name)
+            for c in chunks:
+                ids.append(f"{md5}_{idx}")
+                docs.append(c["text"])
+
+                meta = {
+                    "source": json_path.name,
+                    "act_name": act_name,
+                    "page": int(c.get("page", 0)),
+                    "pdf_hash": md5,
+                }
+                for key in ("part", "chapter", "article", "section"):
+                    if c.get(key):
+                        meta[key] = str(c[key])
+
+                metas.append(meta)
+                idx += 1
+
+        # Batch upsert (500 at a time — ChromaDB best practice)
+        for i in range(0, len(ids), 500):
+            self.collection.add(
+                ids=ids[i : i + 500],
+                documents=docs[i : i + 500],
+                metadatas=metas[i : i + 500],
+            )
+
+        logger.info("Ingested %s — %d chunks", json_path.name, len(ids))
+        return {
+            "status": "success",
+            "message": f"Ingested {json_path.name}",
             "chunks_added": len(ids),
             "total_chunks": self.collection.count(),
         }

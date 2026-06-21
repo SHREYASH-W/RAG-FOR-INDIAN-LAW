@@ -138,10 +138,11 @@ async def get_stats():
 
 
 @app.post("/api/upload", response_model=UploadResponse)
-async def upload_pdf(file: UploadFile = File(...)):
-    """Upload and ingest a new PDF into the knowledge base."""
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload and ingest a new file (PDF or JSON) into the knowledge base."""
+    filename = file.filename.lower() if file.filename else ""
+    if not filename.endswith(".pdf") and not filename.endswith(".json"):
+        raise HTTPException(status_code=400, detail="Only PDF and JSON files are accepted")
 
     if not vector_store:
         raise HTTPException(status_code=503, detail="Vector store not ready")
@@ -155,7 +156,10 @@ async def upload_pdf(file: UploadFile = File(...)):
     logger.info("📄 Uploaded %s → %s", file.filename, dest)
 
     # Ingest into ChromaDB
-    result = vector_store.ingest_pdf(dest)
+    if filename.endswith(".pdf"):
+        result = vector_store.ingest_pdf(dest)
+    else:
+        result = vector_store.ingest_json(dest)
     return UploadResponse(**result)
 
 
