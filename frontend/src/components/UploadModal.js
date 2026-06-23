@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 
 export default function UploadModal({ onClose, onSuccess }) {
   const [isDragging, setIsDragging] = useState(false);
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState({ type: '', message: '' });
@@ -22,34 +22,39 @@ export default function UploadModal({ onClose, onSuccess }) {
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    const droppedFile = e.dataTransfer.files[0];
-    validateAndSetFile(droppedFile);
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    validateAndSetFiles(droppedFiles);
   };
 
   const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    validateAndSetFile(selectedFile);
+    const selectedFiles = Array.from(e.target.files);
+    validateAndSetFiles(selectedFiles);
   };
 
-  const validateAndSetFile = (f) => {
-    if (!f) return;
-    const isPDF = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
-    const isJSON = f.type === 'application/json' || f.name.toLowerCase().endsWith('.json');
-    if (!isPDF && !isJSON) {
-      setStatus({ type: 'error', message: 'Please upload a PDF or JSON file.' });
+  const validateAndSetFiles = (fs) => {
+    if (!fs || fs.length === 0) return;
+    const validFiles = fs.filter(f => {
+      const isPDF = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+      const isJSON = f.type === 'application/json' || f.name.toLowerCase().endsWith('.json');
+      return isPDF || isJSON;
+    });
+
+    if (validFiles.length === 0) {
+      setStatus({ type: 'error', message: 'Please upload PDF or JSON files.' });
       return;
     }
-    setFile(f);
+
+    setFiles(validFiles);
     setStatus({ type: '', message: '' });
-    handleUpload(f);
+    handleUpload(validFiles);
   };
 
-  const handleUpload = async (fileToUpload) => {
-    if (!fileToUpload) return;
+  const handleUpload = async (filesToUpload) => {
+    if (!filesToUpload || filesToUpload.length === 0) return;
     
     setIsUploading(true);
     setProgress(10); // Start progress
-    setStatus({ type: 'loading', message: 'Uploading and indexing...' });
+    setStatus({ type: 'loading', message: `Uploading and indexing ${filesToUpload.length} files...` });
 
     // Simulate progress while uploading
     const progressInterval = setInterval(() => {
@@ -57,7 +62,9 @@ export default function UploadModal({ onClose, onSuccess }) {
     }, 500);
 
     const formData = new FormData();
-    formData.append('file', fileToUpload);
+    filesToUpload.forEach(f => {
+      formData.append('files', f);
+    });
 
     try {
       const res = await fetch('http://localhost:8000/api/upload', {
@@ -71,15 +78,11 @@ export default function UploadModal({ onClose, onSuccess }) {
       const data = await res.json();
       
       if (res.ok) {
-        if (data.status === 'skipped') {
-            setStatus({ type: 'success', message: `Skipped: ${fileToUpload.name} is already indexed.` });
-        } else {
-            setStatus({ type: 'success', message: `Success! Added ${data.chunks_added} chunks.` });
-        }
+        setStatus({ type: 'success', message: data.message });
         setTimeout(() => {
           onSuccess();
           onClose();
-        }, 2000);
+        }, 3000);
       } else {
         setStatus({ type: 'error', message: data.detail || 'Upload failed.' });
         setIsUploading(false);
@@ -112,19 +115,23 @@ export default function UploadModal({ onClose, onSuccess }) {
             ref={fileInputRef} 
             onChange={handleFileChange} 
             accept=".pdf,.json" 
+            multiple
             className="upload-input" 
           />
           
-          <div className="upload-icon">{file && file.name.toLowerCase().endsWith('.json') ? '📝' : '📄'}</div>
-          {!file ? (
+          <div className="upload-icon">📄</div>
+          {files.length === 0 ? (
             <div className="upload-text">
               <strong>Click to upload</strong> or drag and drop<br/>
-              PDF or JSON files only
+              Multiple PDF or JSON files supported
             </div>
           ) : (
             <div className="upload-text">
-              <strong>{file.name}</strong><br/>
-              {(file.size / 1024 / 1024).toFixed(2)} MB
+              <strong>{files.length} file{files.length !== 1 ? 's' : ''} selected</strong><br/>
+              <span style={{ fontSize: '0.85em', opacity: 0.8 }}>
+                {files.map(f => f.name).join(', ').substring(0, 50)}
+                {files.map(f => f.name).join(', ').length > 50 ? '...' : ''}
+              </span>
             </div>
           )}
 

@@ -138,29 +138,57 @@ async def get_stats():
 
 
 @app.post("/api/upload", response_model=UploadResponse)
-async def upload_file(file: UploadFile = File(...)):
-    """Upload and ingest a new file (PDF or JSON) into the knowledge base."""
-    filename = file.filename.lower() if file.filename else ""
-    if not filename.endswith(".pdf") and not filename.endswith(".json"):
-        raise HTTPException(status_code=400, detail="Only PDF and JSON files are accepted")
-
+async def upload_file(files: list[UploadFile] = File(...)):
+    """Upload and ingest multiple files (PDF or JSON) sequentially into the knowledge base."""
     if not vector_store:
         raise HTTPException(status_code=503, detail="Vector store not ready")
 
-    # Save uploaded file
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    dest = UPLOAD_DIR / file.filename
-    with open(dest, "wb") as buf:
-        shutil.copyfileobj(file.file, buf)
+    
+    total_chunks_added = 0
+    total_chunks = 0
+    processed_count = 0
+    skipped_count = 0
 
-    logger.info("📄 Uploaded %s → %s", file.filename, dest)
+    for file in files:
+        filename = file.filename.lower() if file.filename else ""
+        if not filename.endswith(".pdf") and not filename.endswith(".json"):
+            continue
 
-    # Ingest into ChromaDB
-    if filename.endswith(".pdf"):
-        result = vector_store.ingest_pdf(dest)
-    else:
-        result = vector_store.ingest_json(dest)
-    return UploadResponse(**result)
+        dest = UPLOAD_DIR / file.filename
+        with open(dest, "wb") as buf:
+            shutil.copyfileobj(file.file, buf)
+
+        logger.info("📄 Uploaded %s → %s", file.filename, dest)
+
+        if filename.endswith(".pdf"):
+            result = vector_store.ingest_pdf(dest)
+        else:
+            result = vector_store.ingest_json(dest)
+            
+        if result.get("status") == "success":
+            total_chunks_added += result.get("chunks_added", 0)
+            total_chunks = result.get("total_chunks", result.get("total_chunks", 0))
+            processed_count += 1
+        elif result.get("status") == "skipped":
+            skipped_count += 1
+            
+    if processed_count == 0 and skipped_count == 0:
+        raise HTTPException(status_code=400, detail="No valid PDF or JSON files were uploaded")
+        
+    status = "success" if processed_count > 0 else "skipped"
+    messages = []
+    if processed_count > 0:
+        messages.append(f"Successfully processed {processed_count} files.")
+    if skipped_count > 0:
+        messages.append(f"Skipped {skipped_count} files (already indexed).")
+
+    return UploadResponse(
+        status=status,
+        message=" ".join(messages),
+        chunks_added=total_chunks_added,
+        total_chunks=total_chunks
+    )
 
 
 # ── Run ────────────────────────────────────────────────────────
