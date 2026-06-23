@@ -8,3 +8,4 @@ sentence-transformers>=3.4.0
 torch>=2.0.0
 groq==0.25.0
 aiofiles==24.1.0
+rank-bm25>=0.2.2

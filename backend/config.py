@@ -26,16 +26,30 @@ CHUNK_SIZE = 350          # words per chunk
 CHUNK_OVERLAP = 75        # overlapping words between consecutive chunks
 
 # ── Retrieval ──────────────────────────────────────────────────
-TOP_K = 15                # initial retrieval count
+TOP_K = 15                # initial retrieval count per search method
 RERANK_TOP_N = 5          # final count after reranking
+
+# ── Hybrid Search ──────────────────────────────────────────────
+BM25_WEIGHT = 0.4         # weight for BM25 sparse results in RRF
+DENSE_WEIGHT = 1.0        # weight for dense vector results in RRF
+
+# ── Query Expansion ────────────────────────────────────────────
+QUERY_EXPANSION_ENABLED = True
+QUERY_EXPANSION_COUNT = 2  # max number of alternative queries to generate
+
+# ── Contextual Compression ─────────────────────────────────────
+COMPRESSION_ENABLED = True
 
 # ── LLM ────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 LLM_TEMPERATURE = 0.2
-LLM_MAX_TOKENS = 1500
+LLM_MAX_TOKENS = 2000
 
-# ── Act name mapping (matches notebook) ────────────────────────
+# ── Conversation Memory ───────────────────────────────────────
+MAX_CHAT_HISTORY = 10     # max messages to include in context
+
+# ── Act name mapping (kept for backward compat, also in chunker) ──
 ACT_MAP = {
     "constitution_of_india.pdf": "Constitution of India",
     "the_bharatiya_nagarik_suraksha_sanhita_2023.pdf":

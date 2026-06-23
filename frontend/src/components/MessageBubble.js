@@ -3,19 +3,32 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({ message, onCopy }) {
   const isUser = message.role === 'user';
-  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const isTyping = message.content === 'typing';
+  const [feedback, setFeedback] = useState(null); // 'up' | 'down' | null
+
+  const confidenceLevel = 
+    message.confidence >= 0.7 ? 'high' :
+    message.confidence >= 0.4 ? 'medium' : 'low';
+
+  const handleFeedback = (type) => {
+    setFeedback(prev => prev === type ? null : type);
+  };
 
   return (
     <div className={`message ${isUser ? 'message-user' : 'message-ai'}`}>
       <div className="message-avatar">
         {isUser ? '👤' : '⚖️'}
       </div>
-      
+
       <div className="message-body">
+        <div className="message-role">
+          {isUser ? 'You' : 'Nyaya AI'}
+        </div>
+
         <div className="message-content">
-          {message.content === 'typing' ? (
+          {isTyping ? (
             <div className="typing-indicator">
               <div className="typing-dot"></div>
               <div className="typing-dot"></div>
@@ -27,43 +40,44 @@ export default function MessageBubble({ message }) {
             <ReactMarkdown>{message.content}</ReactMarkdown>
           )}
         </div>
-        
-        {!isUser && message.content !== 'typing' && message.sources && message.sources.length > 0 && (
-          <div className="sources-container">
-            <button 
-              className="sources-toggle"
-              onClick={() => setSourcesOpen(!sourcesOpen)}
-            >
-              <span className={`sources-toggle-icon ${sourcesOpen ? 'open' : ''}`}>▼</span>
-              {message.sources.length} Legal Sources
-            </button>
-            
-            {sourcesOpen && (
-              <div className="sources-list">
-                {message.sources.map((source, idx) => (
-                  <div key={idx} className="source-card">
-                    <div className="source-header">
-                      <div className="source-act">{source.act_name}</div>
-                      <div className="source-score" title="Relevance Score">
-                        {Math.round(source.score * 100)}% Match
-                      </div>
-                    </div>
-                    
-                    <div className="source-meta">
-                      {source.part && <div className="source-meta-item"><span>Part:</span> {source.part.replace('Part ', '')}</div>}
-                      {source.chapter && <div className="source-meta-item"><span>Chapter:</span> {source.chapter.replace('Chapter ', '')}</div>}
-                      {source.article && <div className="source-meta-item"><span>Article:</span> {source.article}</div>}
-                      {source.section && <div className="source-meta-item"><span>Section:</span> {source.section}</div>}
-                      {source.page && <div className="source-meta-item"><span>Page:</span> {source.page}</div>}
-                    </div>
-                    
-                    <div className="source-excerpt">
-                      "{source.excerpt}"
-                    </div>
-                  </div>
-                ))}
-              </div>
+
+        {/* Action bar — only on AI responses, not on typing */}
+        {!isUser && !isTyping && (
+          <div className="message-actions">
+            {/* Confidence indicator */}
+            {message.confidence > 0 && (
+              <span className="action-btn" style={{ cursor: 'default' }}>
+                <span className={`confidence-dot confidence-${confidenceLevel}`}></span>
+                {confidenceLevel === 'high' ? 'High confidence' :
+                 confidenceLevel === 'medium' ? 'Moderate confidence' : 'Low confidence'}
+              </span>
             )}
+
+            {/* Copy button */}
+            <button
+              className="action-btn"
+              onClick={() => onCopy?.(message.content)}
+              title="Copy response"
+            >
+              <span className="action-btn-icon">📋</span>
+              Copy
+            </button>
+
+            {/* Feedback buttons */}
+            <button
+              className={`action-btn ${feedback === 'up' ? 'active' : ''}`}
+              onClick={() => handleFeedback('up')}
+              title="Good response"
+            >
+              <span className="action-btn-icon">👍</span>
+            </button>
+            <button
+              className={`action-btn ${feedback === 'down' ? 'active' : ''}`}
+              onClick={() => handleFeedback('down')}
+              title="Poor response"
+            >
+              <span className="action-btn-icon">👎</span>
+            </button>
           </div>
         )}
       </div>

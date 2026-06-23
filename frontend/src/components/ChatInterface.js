@@ -1,13 +1,48 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import MessageBubble from './MessageBubble';
+import UploadModal from './UploadModal';
+
+const API_BASE = 'http://localhost:8000';
+
+const SAMPLE_QUESTIONS = [
+  {
+    icon: '📜',
+    text: 'What are the fundamental rights guaranteed under the Indian Constitution?',
+  },
+  {
+    icon: '⚖️',
+    text: 'Explain the procedure for arrest under the Bharatiya Nagarik Suraksha Sanhita.',
+  },
+  {
+    icon: '💻',
+    text: 'What is the penalty for cyber terrorism under the IT Act?',
+  },
+  {
+    icon: '🛡️',
+    text: 'Can a person be compelled to be a witness against themselves?',
+  },
+];
+
+const CATEGORIES = [
+  'Constitution', 'Criminal Law', 'IT Act', 'Civil Law', 'Fundamental Rights',
+];
 
 export default function ChatInterface() {
-  const [messages, setMessages] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [activeConversation, setActiveConversation] = useState(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showCopied, setShowCopied] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Initialize with a fresh conversation
+  useEffect(() => {
+    startNewChat();
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -15,49 +50,104 @@ export default function ChatInterface() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [activeConversation?.messages]);
+
+  // Auto-resize textarea
+  const handleInputChange = (e) => {
+    setInput(e.target.value);
+    const el = e.target;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  };
+
+  const startNewChat = useCallback(() => {
+    const newConv = {
+      id: Date.now().toString(),
+      title: 'New conversation',
+      messages: [],
+      createdAt: new Date().toISOString(),
+    };
+    setConversations(prev => [newConv, ...prev]);
+    setActiveConversation(newConv);
+    setInput('');
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
+  }, []);
 
   const handleSend = async (question) => {
-    const textToSend = question || input;
-    if (!textToSend.trim()) return;
+    const textToSend = (question || input).trim();
+    if (!textToSend || isLoading) return;
 
-    // Add user message
+    // User message
     const userMsg = { role: 'user', content: textToSend };
-    setMessages(prev => [...prev, userMsg]);
+    
+    setActiveConversation(prev => {
+      const updated = {
+        ...prev,
+        messages: [...prev.messages, userMsg],
+        title: prev.messages.length === 0 
+          ? textToSend.substring(0, 60) + (textToSend.length > 60 ? '…' : '')
+          : prev.title,
+      };
+      setConversations(convs => convs.map(c => c.id === prev.id ? updated : c));
+      return updated;
+    });
+
     setInput('');
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
     setIsLoading(true);
 
     // Add typing indicator
-    setMessages(prev => [...prev, { role: 'ai', content: 'typing' }]);
+    const typingMsg = { role: 'ai', content: 'typing' };
+    setActiveConversation(prev => {
+      const updated = { ...prev, messages: [...prev.messages, typingMsg] };
+      return updated;
+    });
 
     try {
-      const res = await fetch('http://localhost:8000/api/ask', {
+      // Build chat history from current conversation (excluding typing)
+      const chatHistory = activeConversation.messages
+        .filter(m => m.content !== 'typing')
+        .map(m => ({ role: m.role === 'ai' ? 'assistant' : m.role, content: m.content }));
+
+      const res = await fetch(`${API_BASE}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: textToSend }),
+        body: JSON.stringify({
+          question: textToSend,
+          chat_history: chatHistory,
+        }),
       });
 
       const data = await res.json();
-      
+
       // Replace typing indicator with actual response
-      setMessages(prev => {
-        const newMsgs = [...prev];
-        newMsgs[newMsgs.length - 1] = { 
-          role: 'ai', 
-          content: data.answer || "Sorry, I couldn't generate an answer.",
-          sources: data.sources || []
+      setActiveConversation(prev => {
+        const msgs = [...prev.messages];
+        msgs[msgs.length - 1] = {
+          role: 'ai',
+          content: data.answer || "I couldn't generate an answer. Please try again.",
+          confidence: data.confidence || 0,
         };
-        return newMsgs;
+        const updated = { ...prev, messages: msgs };
+        setConversations(convs => convs.map(c => c.id === prev.id ? updated : c));
+        return updated;
       });
     } catch (error) {
       console.error('Failed to get answer:', error);
-      setMessages(prev => {
-        const newMsgs = [...prev];
-        newMsgs[newMsgs.length - 1] = { 
-          role: 'ai', 
-          content: "Sorry, there was an error connecting to the server. Please ensure the backend is running." 
+      setActiveConversation(prev => {
+        const msgs = [...prev.messages];
+        msgs[msgs.length - 1] = {
+          role: 'ai',
+          content: 'Unable to connect to the server. Please ensure the backend is running on port 8000.',
+          confidence: 0,
         };
-        return newMsgs;
+        const updated = { ...prev, messages: msgs };
+        setConversations(convs => convs.map(c => c.id === prev.id ? updated : c));
+        return updated;
       });
     } finally {
       setIsLoading(false);
@@ -71,79 +161,121 @@ export default function ChatInterface() {
     }
   };
 
-  const sampleQuestions = [
-    "What are the fundamental rights under the Indian Constitution?",
-    "Explain the procedure for arrest under Bharatiya Nagarik Suraksha Sanhita.",
-    "What is the penalty for cyber terrorism under the IT Act?",
-    "Can a person be forced to be a witness against himself?"
-  ];
+  const handleCopy = (text) => {
+    navigator.clipboard.writeText(text);
+    setShowCopied(true);
+    setTimeout(() => setShowCopied(false), 2000);
+  };
+
+  const messages = activeConversation?.messages || [];
 
   return (
     <div className="main-content">
+      {/* Header */}
       <header className="chat-header">
-        <div className="chat-header-title">
-          <div className="header-dot"></div>
-          Nyaya AI Engine
+        <div className="chat-header-inner">
+          <div className="chat-header-left">
+            <div className="header-logo">⚖️</div>
+            <div className="chat-header-title">Nyaya AI</div>
+          </div>
+          <div className="chat-header-right">
+            <button className="new-chat-btn" onClick={() => setIsUploadModalOpen(true)} style={{ marginRight: '8px' }}>
+              📥 <span>Upload</span>
+            </button>
+            <div className="header-badge">
+              <span className="header-badge-dot"></span>
+              AI Active
+            </div>
+            <button className="new-chat-btn" onClick={startNewChat}>
+              ✦ <span>New Chat</span>
+            </button>
+          </div>
         </div>
-        <div className="header-badge">RAG Active</div>
       </header>
 
+      {/* Messages */}
       <div className="messages-container">
         {messages.length === 0 ? (
           <div className="welcome-screen">
             <div className="welcome-emblem">⚖️</div>
             <h1 className="welcome-heading">Indian Law Assistant</h1>
             <p className="welcome-subheading">
-              Ask any question about the Indian Constitution, BNS, IT Act, and more. 
-              Powered by advanced AI and dynamic RAG.
+              Ask any question about Indian law — Constitution, BNS, BNSS, IT Act, 
+              and more. Get precise, authoritative answers instantly.
             </p>
-            
+
+            <div className="welcome-categories">
+              {CATEGORIES.map((cat) => (
+                <span key={cat} className="category-pill">{cat}</span>
+              ))}
+            </div>
+
             <div className="sample-questions">
-              {sampleQuestions.map((q, i) => (
-                <button 
-                  key={i} 
+              {SAMPLE_QUESTIONS.map((q, i) => (
+                <button
+                  key={i}
                   className="sample-question"
-                  onClick={() => handleSend(q)}
+                  onClick={() => handleSend(q.text)}
                 >
-                  <span className="sample-question-icon">🔍</span>
-                  {q}
+                  <span className="sample-question-icon">{q.icon}</span>
+                  {q.text}
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          <>
+          <div className="messages-inner">
             {messages.map((msg, idx) => (
-              <MessageBubble key={idx} message={msg} />
+              <MessageBubble
+                key={idx}
+                message={msg}
+                onCopy={handleCopy}
+              />
             ))}
             <div ref={messagesEndRef} />
-          </>
+          </div>
         )}
       </div>
 
+      {/* Input */}
       <div className="input-area">
-        <div className="input-wrapper">
-          <textarea
-            className="chat-input"
-            placeholder="Ask a legal question..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isLoading}
-            rows={1}
-          />
-          <button 
-            className="send-button"
-            onClick={() => handleSend()}
-            disabled={isLoading || !input.trim()}
-          >
-            ↗
-          </button>
-        </div>
-        <div className="input-hint">
-          Nyaya AI can make mistakes. Always verify with original legal texts.
+        <div className="input-area-inner">
+          <div className="input-wrapper">
+            <textarea
+              ref={inputRef}
+              className="chat-input"
+              placeholder="Ask about Indian law…"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading}
+              rows={1}
+            />
+            <button
+              className="send-button"
+              onClick={() => handleSend()}
+              disabled={isLoading || !input.trim()}
+              aria-label="Send message"
+            >
+              ↗
+            </button>
+          </div>
+          <div className="input-hint">
+            Nyaya AI is an AI assistant and may produce inaccurate information. 
+            Verify with original legal texts.
+          </div>
         </div>
       </div>
+
+      {/* Copied toast */}
+      {showCopied && (
+        <div className="copied-toast">✓ Copied to clipboard</div>
+      )}
+
+      {/* Upload Modal */}
+      {isUploadModalOpen && (
+        <UploadModal onClose={() => setIsUploadModalOpen(false)} />
+      )}
     </div>
   );
 }

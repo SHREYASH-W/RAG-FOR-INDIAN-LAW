@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 
-export default function UploadModal({ onClose, onSuccess }) {
+export default function UploadModal({ onClose }) {
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -15,56 +15,70 @@ export default function UploadModal({ onClose, onSuccess }) {
     setIsDragging(true);
   };
 
-  const handleDragLeave = () => {
+  const handleDragLeave = (e) => {
+    e.preventDefault();
     setIsDragging(false);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    validateAndSetFiles(droppedFiles);
+    const dropped = Array.from(e.dataTransfer.files);
+    addFiles(dropped);
   };
 
   const handleFileChange = (e) => {
-    const selectedFiles = Array.from(e.target.files);
-    validateAndSetFiles(selectedFiles);
+    const selected = Array.from(e.target.files);
+    addFiles(selected);
+    e.target.value = '';
   };
 
-  const validateAndSetFiles = (fs) => {
-    if (!fs || fs.length === 0) return;
-    const validFiles = fs.filter(f => {
-      const isPDF = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
-      const isJSON = f.type === 'application/json' || f.name.toLowerCase().endsWith('.json');
-      return isPDF || isJSON;
+  const addFiles = (newFiles) => {
+    const valid = newFiles.filter(f => {
+      const name = f.name.toLowerCase();
+      return name.endsWith('.pdf') || name.endsWith('.json');
     });
 
-    if (validFiles.length === 0) {
-      setStatus({ type: 'error', message: 'Please upload PDF or JSON files.' });
+    if (valid.length === 0) {
+      setStatus({ type: 'error', message: 'Only PDF and JSON files are supported.' });
       return;
     }
 
-    setFiles(validFiles);
+    setFiles(prev => {
+      // Deduplicate by name
+      const existingNames = new Set(prev.map(f => f.name));
+      const unique = valid.filter(f => !existingNames.has(f.name));
+      return [...prev, ...unique];
+    });
     setStatus({ type: '', message: '' });
-    handleUpload(validFiles);
   };
 
-  const handleUpload = async (filesToUpload) => {
-    if (!filesToUpload || filesToUpload.length === 0) return;
-    
-    setIsUploading(true);
-    setProgress(10); // Start progress
-    setStatus({ type: 'loading', message: `Uploading and indexing ${filesToUpload.length} files...` });
+  const removeFile = (index) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
 
-    // Simulate progress while uploading
+  const formatSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const handleUpload = async () => {
+    if (files.length === 0) return;
+
+    setIsUploading(true);
+    setProgress(5);
+    setStatus({
+      type: 'loading',
+      message: `Uploading and indexing ${files.length} file${files.length > 1 ? 's' : ''}…`,
+    });
+
     const progressInterval = setInterval(() => {
-      setProgress(p => Math.min(p + 5, 85));
-    }, 500);
+      setProgress(p => Math.min(p + 3, 88));
+    }, 600);
 
     const formData = new FormData();
-    filesToUpload.forEach(f => {
-      formData.append('files', f);
-    });
+    files.forEach(f => formData.append('files', f));
 
     try {
       const res = await fetch('http://localhost:8000/api/upload', {
@@ -76,116 +90,138 @@ export default function UploadModal({ onClose, onSuccess }) {
       setProgress(100);
 
       const data = await res.json();
-      
+
       if (res.ok) {
-        setStatus({ type: 'success', message: data.message });
-        setTimeout(() => {
-          onSuccess();
-          onClose();
-        }, 3000);
+        setStatus({
+          type: 'success',
+          message: data.message || 'Documents added to knowledge base successfully.',
+        });
+        setTimeout(() => onClose(), 2500);
       } else {
-        setStatus({ type: 'error', message: data.detail || 'Upload failed.' });
+        setStatus({
+          type: 'error',
+          message: data.detail || 'Upload failed. Please try again.',
+        });
         setIsUploading(false);
       }
-    } catch (error) {
+    } catch {
       clearInterval(progressInterval);
-      setStatus({ type: 'error', message: 'Network error. Backend might be down.' });
+      setStatus({
+        type: 'error',
+        message: 'Could not connect to the server. Ensure the backend is running.',
+      });
       setIsUploading(false);
     }
   };
 
   return (
-    <div style={modalOverlayStyle}>
-      <div style={modalContentStyle}>
-        <div style={headerStyle}>
-          <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-primary)' }}>Add to Knowledge Base</h2>
-          <button onClick={onClose} style={closeBtnStyle}>✕</button>
+    <div className="upload-overlay" onClick={(e) => {
+      if (e.target === e.currentTarget && !isUploading) onClose();
+    }}>
+      <div className="upload-modal">
+        {/* Header */}
+        <div className="upload-modal-header">
+          <div className="upload-modal-title">
+            <span className="upload-modal-icon">📄</span>
+            Add Documents
+          </div>
+          {!isUploading && (
+            <button className="upload-close-btn" onClick={onClose}>✕</button>
+          )}
         </div>
 
-        <div 
-          className={`upload-zone ${isDragging ? 'drag-over' : ''}`}
+        <p className="upload-modal-desc">
+          Upload PDF or JSON files to expand the legal knowledge base. 
+          Multiple files can be added at once.
+        </p>
+
+        {/* Drop zone */}
+        <div
+          className={`upload-dropzone ${isDragging ? 'dragging' : ''} ${isUploading ? 'disabled' : ''}`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => !isUploading && fileInputRef.current?.click()}
-          style={{ minHeight: '180px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}
         >
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            accept=".pdf,.json" 
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".pdf,.json"
             multiple
-            className="upload-input" 
+            hidden
           />
-          
-          <div className="upload-icon">📄</div>
-          {files.length === 0 ? (
-            <div className="upload-text">
-              <strong>Click to upload</strong> or drag and drop<br/>
-              Multiple PDF or JSON files supported
-            </div>
-          ) : (
-            <div className="upload-text">
-              <strong>{files.length} file{files.length !== 1 ? 's' : ''} selected</strong><br/>
-              <span style={{ fontSize: '0.85em', opacity: 0.8 }}>
-                {files.map(f => f.name).join(', ').substring(0, 50)}
-                {files.map(f => f.name).join(', ').length > 50 ? '...' : ''}
-              </span>
-            </div>
-          )}
-
-          {isUploading && (
-            <div className="upload-progress" style={{ width: '80%', margin: '16px auto 0' }}>
-              <div className="upload-progress-bar">
-                <div className="upload-progress-fill" style={{ width: `${progress}%` }}></div>
-              </div>
-            </div>
-          )}
+          <div className="dropzone-icon">{isDragging ? '📥' : '📤'}</div>
+          <div className="dropzone-text">
+            <strong>Click to browse</strong> or drag files here
+          </div>
+          <div className="dropzone-hint">PDF, JSON — up to 50 MB each</div>
         </div>
 
+        {/* File list */}
+        {files.length > 0 && (
+          <div className="upload-file-list">
+            {files.map((file, i) => (
+              <div key={`${file.name}-${i}`} className="upload-file-item">
+                <div className="upload-file-info">
+                  <span className="upload-file-ext">
+                    {file.name.toLowerCase().endsWith('.pdf') ? '📕' : '📘'}
+                  </span>
+                  <span className="upload-file-name">{file.name}</span>
+                  <span className="upload-file-size">{formatSize(file.size)}</span>
+                </div>
+                {!isUploading && (
+                  <button
+                    className="upload-file-remove"
+                    onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Progress bar */}
+        {isUploading && (
+          <div className="upload-progress-wrap">
+            <div className="upload-progress-track">
+              <div
+                className="upload-progress-bar"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="upload-progress-pct">{progress}%</span>
+          </div>
+        )}
+
+        {/* Status */}
         {status.message && (
-          <div className={status.type === 'error' ? 'upload-error' : status.type === 'success' ? 'upload-success' : 'upload-status'} style={{ textAlign: 'center', marginTop: '16px' }}>
-            {status.type === 'success' && <span style={{fontSize: '1.2rem'}}>✅</span>}
+          <div className={`upload-status upload-status-${status.type}`}>
+            {status.type === 'success' && <span>✅</span>}
+            {status.type === 'error' && <span>⚠️</span>}
+            {status.type === 'loading' && <span className="upload-spinner">⏳</span>}
             {status.message}
+          </div>
+        )}
+
+        {/* Actions */}
+        {!isUploading && !status.type?.includes('success') && (
+          <div className="upload-actions">
+            <button className="upload-cancel-btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              className="upload-submit-btn"
+              onClick={handleUpload}
+              disabled={files.length === 0}
+            >
+              Upload {files.length > 0 ? `${files.length} file${files.length > 1 ? 's' : ''}` : ''}
+            </button>
           </div>
         )}
       </div>
     </div>
   );
 }
-
-const modalOverlayStyle = {
-  position: 'fixed',
-  inset: 0,
-  backgroundColor: 'rgba(0, 0, 0, 0.7)',
-  backdropFilter: 'blur(4px)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-};
-
-const modalContentStyle = {
-  background: 'var(--bg-elevated)',
-  border: '1px solid var(--border-accent)',
-  borderRadius: 'var(--radius-xl)',
-  width: '90%',
-  maxWidth: '500px',
-  padding: '24px',
-  boxShadow: 'var(--shadow-lg), 0 0 40px rgba(212, 168, 83, 0.1)',
-  animation: 'fadeIn 0.3s ease',
-};
-
-const headerStyle = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  marginBottom: '20px',
-};
-
-const closeBtnStyle = {
-  fontSize: '1.2rem',
-  color: 'var(--text-tertiary)',
-  padding: '4px',
-};

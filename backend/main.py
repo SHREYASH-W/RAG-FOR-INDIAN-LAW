@@ -8,11 +8,12 @@ import shutil
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from config import UPLOAD_DIR
+from config import UPLOAD_DIR, MAX_CHAT_HISTORY
 from rag_engine import VectorStore, Reranker, RAGPipeline
 
 # ── Logging ────────────────────────────────────────────────────
@@ -48,9 +49,9 @@ async def lifespan(app: FastAPI):
 
 # ── App ────────────────────────────────────────────────────────
 app = FastAPI(
-    title="Indian Law RAG API",
-    description="Retrieval-Augmented Generation for Indian legal documents",
-    version="1.0.0",
+    title="Nyaya AI — Indian Law RAG API",
+    description="Production-grade Retrieval-Augmented Generation for Indian legal documents",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -63,25 +64,32 @@ app.add_middleware(
 )
 
 
+# ── Global Error Handler ──────────────────────────────────────
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled error: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An internal error occurred. Please try again.",
+        },
+    )
+
+
 # ── Request / Response Models ──────────────────────────────────
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
 class AskRequest(BaseModel):
     question: str
-
-
-class SourceInfo(BaseModel):
-    act_name: str | None = None
-    part: str | None = None
-    chapter: str | None = None
-    article: str | None = None
-    section: str | None = None
-    page: int | None = None
-    score: float | None = None
-    excerpt: str | None = None
+    chat_history: list[ChatMessage] = []
 
 
 class AskResponse(BaseModel):
     answer: str
-    sources: list[SourceInfo] = []
+    confidence: float = 0.0
 
 
 class StatsResponse(BaseModel):
@@ -100,6 +108,7 @@ class UploadResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     chromadb_chunks: int
+    version: str = "2.0.0"
 
 
 # ── Endpoints ──────────────────────────────────────────────────
@@ -121,10 +130,18 @@ async def ask_question(req: AskRequest):
         raise HTTPException(status_code=503, detail="Pipeline not ready")
 
     logger.info("❓ Question: %s", req.question[:100])
-    result = pipeline.ask(req.question)
+
+    # Convert chat history to plain dicts, limit to MAX_CHAT_HISTORY
+    history = [
+        {"role": msg.role, "content": msg.content}
+        for msg in req.chat_history[-MAX_CHAT_HISTORY:]
+    ] if req.chat_history else None
+
+    result = pipeline.ask(req.question, chat_history=history)
+
     return AskResponse(
         answer=result["answer"],
-        sources=[SourceInfo(**s) for s in result["sources"]],
+        confidence=result.get("confidence", 0.0),
     )
 
 
@@ -139,12 +156,12 @@ async def get_stats():
 
 @app.post("/api/upload", response_model=UploadResponse)
 async def upload_file(files: list[UploadFile] = File(...)):
-    """Upload and ingest multiple files (PDF or JSON) sequentially into the knowledge base."""
+    """Upload and ingest multiple files (PDF or JSON) into the knowledge base."""
     if not vector_store:
         raise HTTPException(status_code=503, detail="Vector store not ready")
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     total_chunks_added = 0
     total_chunks = 0
     processed_count = 0
@@ -165,17 +182,27 @@ async def upload_file(files: list[UploadFile] = File(...)):
             result = vector_store.ingest_pdf(dest)
         else:
             result = vector_store.ingest_json(dest)
-            
+
         if result.get("status") == "success":
             total_chunks_added += result.get("chunks_added", 0)
-            total_chunks = result.get("total_chunks", result.get("total_chunks", 0))
+            total_chunks = result.get("total_chunks", 0)
             processed_count += 1
         elif result.get("status") == "skipped":
             skipped_count += 1
-            
+
     if processed_count == 0 and skipped_count == 0:
-        raise HTTPException(status_code=400, detail="No valid PDF or JSON files were uploaded")
-        
+        raise HTTPException(
+            status_code=400,
+            detail="No valid PDF or JSON files were uploaded",
+        )
+
+    # Rebuild BM25 index after new documents
+    if processed_count > 0 and pipeline:
+        try:
+            pipeline.retriever.build_bm25_index()
+        except Exception as e:
+            logger.warning("BM25 rebuild failed (non-fatal): %s", e)
+
     status = "success" if processed_count > 0 else "skipped"
     messages = []
     if processed_count > 0:
@@ -187,7 +214,7 @@ async def upload_file(files: list[UploadFile] = File(...)):
         status=status,
         message=" ".join(messages),
         chunks_added=total_chunks_added,
-        total_chunks=total_chunks
+        total_chunks=total_chunks,
     )
 
 
