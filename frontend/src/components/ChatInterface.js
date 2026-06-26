@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import MessageBubble from './MessageBubble';
 import UploadModal from './UploadModal';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '';
 
 const SAMPLE_QUESTIONS = [
   {

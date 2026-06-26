@@ -22,3 +22,6 @@ data/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Kiro
+.kiro/

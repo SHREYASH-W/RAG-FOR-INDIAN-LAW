@@ -113,8 +113,17 @@ def check_input(text: str) -> InputGuardResult:
 
     Returns an InputGuardResult with .passed = True if the query is acceptable.
     """
-    # ── 1. Empty / too short ───────────────────────────────────
     stripped = text.strip()
+    
+    # ── 0. Greetings ───────────────────────────────────────────
+    clean_text = re.sub(r"[^\w\s]", "", stripped.lower()).strip()
+    if clean_text in {"hi", "hello", "hey", "greetings", "namaste", "good morning", "good afternoon", "good evening"}:
+        return InputGuardResult(
+            False,
+            "Hello! I am Nyaya AI, your Indian legal advisor. How can I assist you with Indian law today?"
+        )
+
+    # ── 1. Empty / too short ───────────────────────────────────
     if len(stripped) < _MIN_INPUT_LENGTH:
         return InputGuardResult(False, "Please enter a valid question.")
 
