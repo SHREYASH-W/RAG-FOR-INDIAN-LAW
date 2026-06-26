@@ -4,8 +4,7 @@ python-multipart==0.0.20
 python-dotenv==1.1.0
 pdfplumber==0.11.6
 chromadb>=0.5.5
-sentence-transformers>=3.4.0
-torch>=2.0.0
+cohere>=5.5.0
 groq==0.25.0
 aiofiles==24.1.0
 rank-bm25>=0.2.2

@@ -15,8 +15,8 @@ PDF_DIR = BASE_DIR / "data"
 UPLOAD_DIR = BASE_DIR / "data"                              # uploaded PDFs go here too
 
 # ── Embedding & Reranking Models ───────────────────────────────
-EMBED_MODEL = "BAAI/bge-base-en-v1.5"
-RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+EMBED_MODEL = "embed-english-v3.0"
+RERANK_MODEL = "rerank-english-v3.0"
 
 # ── ChromaDB ───────────────────────────────────────────────────
 COLLECTION_NAME = "indian_law"
@@ -40,8 +40,9 @@ QUERY_EXPANSION_COUNT = 2  # max number of alternative queries to generate
 # ── Contextual Compression ─────────────────────────────────────
 COMPRESSION_ENABLED = True
 
-# ── LLM ────────────────────────────────────────────────────────
+# ── LLM & API Keys ───────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 LLM_TEMPERATURE = 0.2
 LLM_MAX_TOKENS = 2000

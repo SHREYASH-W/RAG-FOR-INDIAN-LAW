@@ -9,13 +9,13 @@ from pathlib import Path
 
 import chromadb
 from chromadb.utils import embedding_functions
-from sentence_transformers import CrossEncoder
+import cohere
 from groq import Groq
 
 from config import (
     CHROMA_DIR, EMBED_MODEL, COLLECTION_NAME,
     TOP_K, RERANK_TOP_N, RERANK_MODEL,
-    GROQ_API_KEY, GROQ_MODEL,
+    GROQ_API_KEY, GROQ_MODEL, COHERE_API_KEY,
     LLM_TEMPERATURE, LLM_MAX_TOKENS,
 )
 from chunker import chunk_pdf, chunk_json, file_hash
@@ -33,9 +33,9 @@ class VectorStore:
     """Manages the ChromaDB collection for Indian law documents."""
 
     def __init__(self):
-        ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+        ef = embedding_functions.CohereEmbeddingFunction(
+            api_key=COHERE_API_KEY,
             model_name=EMBED_MODEL,
-            device="cpu",
         )
         self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
         self.collection = self.client.get_or_create_collection(
@@ -190,10 +190,10 @@ class VectorStore:
 # ═══════════════════════════════════════════════════════════════
 
 class Reranker:
-    """Cross-encoder reranker for improving retrieval precision."""
+    """Cohere reranker for improving retrieval precision."""
 
     def __init__(self):
-        self.model = CrossEncoder(RERANK_MODEL, device="cpu")
+        self.client = cohere.Client(api_key=COHERE_API_KEY)
         logger.info("Reranker loaded — model=%s", RERANK_MODEL)
 
     def rerank(self, query: str, hits: list[dict],
@@ -201,14 +201,27 @@ class Reranker:
         if not hits:
             return hits
 
-        pairs = [[query, h["text"]] for h in hits]
-        scores = self.model.predict(pairs)
-
-        for h, s in zip(hits, scores):
-            h["rerank_score"] = float(s)
-
-        hits.sort(key=lambda x: x["rerank_score"], reverse=True)
-        return hits[:top_n]
+        docs = [h["text"] for h in hits]
+        
+        try:
+            results = self.client.rerank(
+                model=RERANK_MODEL,
+                query=query,
+                documents=docs,
+                top_n=top_n
+            )
+            
+            reranked_hits = []
+            for r in results.results:
+                hit = hits[r.index]
+                hit["rerank_score"] = float(r.relevance_score)
+                reranked_hits.append(hit)
+                
+            return reranked_hits
+        except Exception as e:
+            logger.error("Reranking failed: %s", e)
+            # Fallback if Cohere fails: just return top_n from original hits
+            return hits[:top_n]
 
 
 # ═══════════════════════════════════════════════════════════════
